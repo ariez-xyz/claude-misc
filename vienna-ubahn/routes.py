@@ -44,14 +44,17 @@ def rides(lines, used, at):
 
 
 def enumerate_routes(lines, strict):
-    """strict: no station may be visited (or passed through) twice."""
+    """Routes never pass through GOAL before ending there.
+    strict: additionally, no station may be visited (or passed through) twice."""
     out = []
 
     def dfs(at, used, seen, legs):
         for line, path in rides(lines, used, at):
+            if GOAL in path[1:-1]:  # never ride through the destination
+                continue
             if strict and seen.intersection(path[1:]):
                 continue
-            leg = legs + [(line, path[0], path[-1])]
+            leg = legs + [(line, path[0], path[-1], path)]
             if path[-1] == GOAL:
                 out.append(leg)
                 continue
@@ -61,8 +64,13 @@ def enumerate_routes(lines, strict):
     return out
 
 
+def order(route):
+    """Stops on the first line, then number of lines, then total stops."""
+    return (len(route[0][3]) - 1, len(route), sum(len(leg[3]) - 1 for leg in route))
+
+
 def fmt(route):
-    return f"{route[0][1]} " + " ".join(f"-{l}-> {b}" for l, _, b in route)
+    return f"{route[0][1]} " + " ".join(f"-{l}-> {b}" for l, _, b, _ in route)
 
 
 if __name__ == "__main__":
@@ -70,11 +78,12 @@ if __name__ == "__main__":
     for line, st in lines.items():
         print(f"{line}: {' - '.join(st)}")
     loose = enumerate_routes(lines, strict=False)
-    print(f"\nRoutes, no line twice (stations may repeat): {len(loose)}")
-    for r in sorted(loose, key=lambda r: (len(r), fmt(r))):
-        print("  " + fmt(r))
+    print(f"\nRoutes, no line twice, never through {GOAL} (other stations may repeat): {len(loose)}")
+    for r in sorted(loose, key=order):
+        n = order(r)[0]
+        print(f"  [{n:2d} {'stop ' if n == 1 else 'stops'} on {r[0][0]}] " + fmt(r))
     strict = enumerate_routes(lines, strict=True)
     print(f"\nRoutes, no line twice AND no station twice: {len(strict)}")
     if "-v" in sys.argv:
-        for r in sorted(strict, key=lambda r: (len(r), fmt(r))):
+        for r in sorted(strict, key=order):
             print("  " + fmt(r))

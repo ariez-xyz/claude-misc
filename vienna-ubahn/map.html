@@ -127,6 +127,7 @@ h2{margin:0;font-size:.78rem;letter-spacing:.1em;text-transform:uppercase;color:
 .leg{display:inline-flex;align-items:center;gap:5px}
 .chev{color:var(--muted);font-weight:400}
 .meta{font-size:.8rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.meta b{color:var(--ink);font-weight:650}
 .note{font-size:.78rem;color:var(--muted);font-style:italic}
 .empty{padding:14px;border:1px dashed var(--rule);border-radius:10px;color:var(--muted)}
 
@@ -183,18 +184,19 @@ footer p{margin:0 0 6px}
     </div>
 
     <div class="answer" aria-live="polite">
-      <div class="count"><span id="count">19</span><span class="unit" id="unit">routes</span></div>
+      <div class="count"><span id="count">15</span><span class="unit" id="unit">routes</span></div>
       <p id="summary">Heiligenstadt to Stephansplatz</p>
       <ul class="rules">
         <li>Change only where lines meet</li>
         <li>Ride each line at most once</li>
-        <li id="ruleStations">Stations may repeat</li>
+        <li>Never pass through the destination</li>
+        <li id="ruleStations">Other stations may repeat</li>
       </ul>
-      <label class="toggle" for="strict"><input type="checkbox" id="strict"> Also never pass a station twice</label>
+      <label class="toggle" for="strict"><input type="checkbox" id="strict"> Also never pass any other station twice</label>
     </div>
 
     <div class="listhead">
-      <h2>Routes, fewest lines first</h2>
+      <h2>Shortest first ride first</h2>
       <button id="showAll" type="button" aria-pressed="true">All on map</button>
     </div>
     <ol id="routes"></ol>
@@ -345,6 +347,7 @@ function findRoutes(from, to, strict) {
         if (j === i) continue;
         const path = j > i ? st.slice(i, j + 1) : st.slice(j, i + 1).reverse();
         const dest = path[path.length - 1];
+        if (path.slice(1, -1).includes(to)) continue; // never ride through the destination
         if (strict && path.slice(1).some(s => seen.has(s))) continue;
         const leg = {line, from: at, to: dest, path};
         if (dest === to) { out.push([...legs, leg]); continue; }
@@ -355,19 +358,17 @@ function findRoutes(from, to, strict) {
       }
     }
   })(from, new Set(), new Set([from]), []);
+  // Order: stops on the first line, then fewest lines, then fewest stops overall.
   const stops = r => r.reduce((n, l) => n + l.path.length - 1, 0);
-  return out.sort((a, b) => a.length - b.length || stops(a) - stops(b));
+  const first = r => r[0].path.length - 1;
+  return out.sort((a, b) => first(a) - first(b) || a.length - b.length || stops(a) - stops(b));
 }
-function routeNote(r, to) {
+function routeNote(r) {
   const seq = [r[0].from, ...r.flatMap(l => l.path.slice(1))];
   const c = {};
   seq.forEach(s => c[s] = (c[s] || 0) + 1);
-  const twice = Object.keys(c).filter(s => c[s] > 1);
-  const parts = [];
-  if (twice.includes(to)) parts.push(`Rides through ${disp(to)} before getting off there`);
-  const others = twice.filter(s => s !== to).map(disp);
-  if (others.length) parts.push(`Passes ${others.join(", ")} twice`);
-  return parts.join(". ");
+  const twice = Object.keys(c).filter(s => c[s] > 1).map(disp);
+  return twice.length ? `Passes ${twice.join(", ")} twice` : "";
 }
 
 // ---------- svg helpers ----------
@@ -613,7 +614,7 @@ function renderList() {
   $("count").textContent = routes.length;
   $("unit").textContent = routes.length === 1 ? "route" : "routes";
   $("summary").textContent = `${disp(from)} to ${disp(to)}`;
-  $("ruleStations").textContent = state.strict ? "No station twice" : "Stations may repeat";
+  $("ruleStations").textContent = state.strict ? "No other station twice" : "Other stations may repeat";
   $("showAll").textContent = `All ${routes.length} on map`;
   $("showAll").setAttribute("aria-pressed", state.sel === null ? "true" : "false");
   const ol = $("routes");
@@ -624,11 +625,12 @@ function renderList() {
   ol.innerHTML = routes.map((r, i) => {
     const legs = r.map((l, k) => `<span class="leg">${badge(l.line)}${esc(disp(l.to))}</span>${k < r.length - 1 ? '<span class="chev" aria-hidden="true">›</span>' : ""}`).join("");
     const stops = r.reduce((n, l) => n + l.path.length - 1, 0);
-    const note = routeNote(r, to);
+    const first = r[0].path.length - 1;
+    const note = routeNote(r);
     return `<li><button type="button" class="route" data-i="${i}" aria-pressed="${state.sel === i}">
       <span class="rnum">${String(i + 1).padStart(2, "0")}</span>
       <span class="legs">${legs}</span>
-      <span class="meta">${r.length} ${r.length === 1 ? "line" : "lines"} · ${r.length - 1} ${r.length === 2 ? "change" : "changes"} · ${stops} stops</span>
+      <span class="meta"><b>${first} ${first === 1 ? "stop" : "stops"} on ${r[0].line}</b> · ${r.length} ${r.length === 1 ? "line" : "lines"} · ${r.length - 1} ${r.length === 2 ? "change" : "changes"} · ${stops} stops in all</span>
       ${note ? `<span class="note">${esc(note)}</span>` : ""}
     </button></li>`;
   }).join("");
