@@ -54,6 +54,7 @@ def enumerate_routes(lines, strict):
             leg = legs + [(line, path[0], path[-1])]
             if path[-1] == GOAL:
                 out.append(leg)
+                continue
             dfs(path[-1], used | {line}, seen | set(path), leg)
 
     dfs(START, frozenset(), {START}, [])
@@ -68,12 +69,12 @@ if __name__ == "__main__":
     lines = network()
     for line, st in lines.items():
         print(f"{line}: {' - '.join(st)}")
-    strict = enumerate_routes(lines, strict=True)
-    print(f"\nRoutes, no line twice AND no station twice: {len(strict)}")
-    for r in sorted(strict, key=lambda r: (len(r), fmt(r))):
-        print("  " + fmt(r))
     loose = enumerate_routes(lines, strict=False)
     print(f"\nRoutes, no line twice (stations may repeat): {len(loose)}")
+    for r in sorted(loose, key=lambda r: (len(r), fmt(r))):
+        print("  " + fmt(r))
+    strict = enumerate_routes(lines, strict=True)
+    print(f"\nRoutes, no line twice AND no station twice: {len(strict)}")
     if "-v" in sys.argv:
-        for r in sorted(loose, key=lambda r: (len(r), fmt(r))):
+        for r in sorted(strict, key=lambda r: (len(r), fmt(r))):
             print("  " + fmt(r))

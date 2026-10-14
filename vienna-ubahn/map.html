@@ -1,0 +1,700 @@
+<title>Vienna U-Bahn Routes</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&display=swap">
+<style>
+/* Layout: one-screen tool. The network map is the canvas on the left, the route ledger sits to the right; they stack on phones. */
+:root{
+  --bg:#edf0f4;
+  --paper:#ffffff;
+  --ink:#121417;
+  --muted:#596170;
+  --rule:#d8dde5;
+  --chip:#e6eaf0;
+  --ubahn:#1b5fa8;
+  --water:#d3e7f5;
+  --water-ink:#5a8db3;
+  --station-fill:#ffffff;
+  --station-stroke:#121417;
+  --halo:#ffffff;
+  --u1:#e3000f; --u2:#a3609f; --u3:#ee7d00; --u4:#00963f; --u6:#9d6830;
+  --font:"Archivo","Helvetica Neue",Arial,system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0b0d10; --paper:#14171c; --ink:#eef1f4; --muted:#9aa3b1; --rule:#2a3039; --chip:#20252d;
+    --ubahn:#4b8fdb; --water:#16324a; --water-ink:#7fb1d6;
+    --station-fill:#14171c; --station-stroke:#eef1f4; --halo:#14171c;
+    --u2:#b674b2; --u6:#b27a42;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0b0d10; --paper:#14171c; --ink:#eef1f4; --muted:#9aa3b1; --rule:#2a3039; --chip:#20252d;
+  --ubahn:#4b8fdb; --water:#16324a; --water-ink:#7fb1d6;
+  --station-fill:#14171c; --station-stroke:#eef1f4; --halo:#14171c;
+  --u2:#b674b2; --u6:#b27a42;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  background:var(--bg); color:var(--ink);
+  font-family:var(--font); font-size:15px; line-height:1.45;
+  padding-left:max(16px, env(safe-area-inset-left, 0px));
+  padding-right:max(16px, env(safe-area-inset-right, 0px));
+  padding-block:16px;
+}
+button,select,input{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--ubahn);outline-offset:2px}
+
+.app{display:grid;grid-template-columns:minmax(0,1fr) 390px;gap:16px;height:100%}
+
+/* map */
+.mapwrap{position:relative;min-width:0;min-height:0;background:var(--paper);border:1px solid var(--rule);border-radius:12px;overflow:hidden}
+#map{display:block;width:100%;height:100%;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none}
+#map.dragging{cursor:grabbing}
+.water{fill:none;stroke:var(--water);stroke-linecap:round;stroke-linejoin:round}
+.water-lbl{fill:var(--water-ink);font-size:15px;font-style:italic;letter-spacing:.18em;font-stretch:100%}
+.line{fill:none;stroke-width:9;stroke-linecap:round;stroke-linejoin:round;transition:opacity .25s}
+.hi{fill:none;stroke-width:12;stroke-linecap:round;stroke-linejoin:round}
+.u1{stroke:var(--u1)} .u2{stroke:var(--u2)} .u3{stroke:var(--u3)} .u4{stroke:var(--u4)} .u6{stroke:var(--u6)}
+.st{fill:var(--station-fill);stroke:var(--station-stroke);stroke-width:3.6;transition:opacity .25s}
+.hit{fill:transparent;cursor:pointer}
+.lbl{font-size:17px;font-stretch:92%;font-weight:450;fill:var(--ink);paint-order:stroke;stroke:var(--halo);stroke-width:5px;stroke-linejoin:round;transition:opacity .25s}
+.lbl.key{font-weight:750}
+.focus .line.base{opacity:.15}
+.focus .st:not(.on){opacity:.35}
+.focus .lbl:not(.on){opacity:.32}
+.xfer{fill:var(--station-fill);stroke:var(--station-stroke);stroke-width:4.5}
+.endpt circle{fill:var(--ink)}
+.endpt text{fill:var(--paper);font-size:15px;font-weight:800;font-stretch:100%}
+.badge-svg rect{rx:3}
+.badge-svg text{fill:#fff;font-size:19px;font-weight:700;font-stretch:100%}
+.b-u1{fill:var(--u1)} .b-u2{fill:var(--u2)} .b-u3{fill:var(--u3)} .b-u4{fill:var(--u4)} .b-u6{fill:var(--u6)}
+
+.legend{position:absolute;left:12px;top:12px;display:flex;gap:6px;flex-wrap:wrap;pointer-events:none}
+.zoom{position:absolute;right:12px;bottom:12px;display:flex;gap:6px}
+.zoom button{min-width:38px;height:38px;padding:0 10px;border-radius:8px;border:1px solid var(--rule);background:var(--paper);cursor:pointer;font-weight:600;font-size:16px}
+.zoom button:hover{background:var(--chip)}
+.hint{position:absolute;left:12px;top:50px;margin:0;font-size:12px;color:var(--muted);background:color-mix(in srgb,var(--paper) 85%,transparent);padding:4px 8px;border-radius:6px;max-width:calc(100% - 190px)}
+
+/* line badge (shared by legend and list) */
+.badge{display:inline-flex;align-items:center;justify-content:center;min-width:2.6em;height:1.6em;padding:0 .35em;border-radius:3px;color:#fff;font-weight:700;font-size:.82rem;font-stretch:100%;letter-spacing:.02em;line-height:1}
+.badge.u1{background:var(--u1)} .badge.u2{background:var(--u2)} .badge.u3{background:var(--u3)} .badge.u4{background:var(--u4)} .badge.u6{background:var(--u6)}
+
+/* panel */
+.panel{min-width:0;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:18px;padding-right:2px}
+.brand{display:flex;gap:12px;align-items:center}
+.ulogo{flex:none;width:44px;height:44px;border-radius:6px;background:var(--ubahn);color:#fff;display:grid;place-items:center;font-weight:800;font-size:30px;font-stretch:110%;line-height:1}
+h1{margin:0;font-size:1.45rem;line-height:1.1;font-weight:800;font-stretch:112%;letter-spacing:-.01em;text-wrap:balance}
+.brand p{margin:2px 0 0;color:var(--muted);font-size:.9rem}
+
+.trip{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 10px;align-items:end;background:var(--paper);border:1px solid var(--rule);border-radius:12px;padding:14px}
+.field{display:flex;flex-direction:column;gap:4px;min-width:0}
+.field label{font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.field select{width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--rule);background:var(--bg);font-weight:600}
+#swap{grid-row:1 / span 2;grid-column:2;align-self:center;width:40px;height:40px;border-radius:50%;border:1px solid var(--rule);background:var(--bg);cursor:pointer;display:grid;place-items:center}
+#swap:hover{background:var(--chip)}
+#swap svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.pick{grid-column:1 / -1;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:.85rem;color:var(--muted);padding-top:4px}
+.seg{display:inline-flex;border:1px solid var(--rule);border-radius:8px;overflow:hidden}
+.seg button{border:0;background:transparent;padding:4px 12px;cursor:pointer;font-weight:600;font-size:.85rem}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+
+.answer{display:flex;flex-direction:column;gap:10px}
+.count{display:flex;align-items:baseline;gap:10px}
+#count{font-size:4.2rem;line-height:.9;font-weight:850;font-stretch:118%;font-variant-numeric:tabular-nums;letter-spacing:-.03em}
+.count .unit{font-size:1.25rem;font-weight:700;font-stretch:105%}
+#summary{margin:0;font-weight:600}
+.rules{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
+.rules li{font-size:.8rem;padding:3px 9px;border-radius:999px;background:var(--chip);color:var(--ink)}
+.toggle{display:flex;gap:8px;align-items:center;font-size:.9rem;cursor:pointer;width:max-content;max-width:100%}
+.toggle input{width:16px;height:16px;accent-color:var(--ubahn)}
+
+.listhead{display:flex;justify-content:space-between;align-items:center;gap:10px;border-bottom:1px solid var(--rule);padding-bottom:6px}
+h2{margin:0;font-size:.78rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700}
+#showAll{border:1px solid var(--rule);background:var(--paper);border-radius:999px;padding:3px 12px;font-size:.82rem;font-weight:600;cursor:pointer}
+#showAll[aria-pressed="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+
+#routes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.route{width:100%;text-align:left;display:grid;grid-template-columns:2.2em minmax(0,1fr);gap:2px 8px;padding:10px 12px 10px 8px;border-radius:10px;border:1px solid transparent;background:var(--paper);cursor:pointer}
+.route:hover{border-color:var(--rule)}
+.route[aria-pressed="true"]{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+.rnum{grid-row:1 / span 3;color:var(--muted);font-variant-numeric:tabular-nums;font-weight:600;font-size:.85rem;padding-top:3px;text-align:right}
+.legs{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;font-weight:600;font-size:.92rem}
+.leg{display:inline-flex;align-items:center;gap:5px}
+.chev{color:var(--muted);font-weight:400}
+.meta{font-size:.8rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.note{font-size:.78rem;color:var(--muted);font-style:italic}
+.empty{padding:14px;border:1px dashed var(--rule);border-radius:10px;color:var(--muted)}
+
+footer{font-size:.78rem;color:var(--muted);border-top:1px solid var(--rule);padding-top:10px;margin-top:auto}
+footer p{margin:0 0 6px}
+
+@media (max-width: 900px){
+  html,body{height:auto}
+  .app{grid-template-columns:1fr;height:auto}
+  .mapwrap{height:66svh;min-height:420px}
+  .panel{overflow:visible}
+  .hint{display:none}
+}
+@media (prefers-reduced-motion: reduce){
+  .line,.st,.lbl{transition:none}
+}
+</style>
+
+<div class="app">
+  <section class="mapwrap" aria-label="Network map">
+    <svg id="map" role="img" aria-label="Schematic map of the Vienna U-Bahn with the selected routes highlighted"></svg>
+    <div class="legend" aria-hidden="true">
+      <span class="badge u1">U1</span><span class="badge u2">U2</span><span class="badge u3">U3</span><span class="badge u4">U4</span><span class="badge u6">U6</span>
+    </div>
+    <p class="hint">Scroll or pinch to zoom, drag to pan, tap a station to pick it.</p>
+    <div class="zoom">
+      <button id="zin" type="button" aria-label="Zoom in">+</button>
+      <button id="zout" type="button" aria-label="Zoom out">&minus;</button>
+      <button id="zfit" type="button" aria-label="Show the whole network">Fit</button>
+    </div>
+  </section>
+
+  <aside class="panel">
+    <header class="brand">
+      <div class="ulogo" aria-hidden="true">U</div>
+      <div>
+        <h1>Vienna U-Bahn Routes</h1>
+        <p>Every way between two stations without riding the same line twice.</p>
+      </div>
+    </header>
+
+    <div class="trip">
+      <div class="field"><label for="from">From</label><select id="from"></select></div>
+      <button id="swap" type="button" aria-label="Swap start and destination">
+        <svg viewBox="0 0 24 24"><path d="M7 4v16M7 20l-3-3M7 20l3-3M17 20V4M17 4l-3 3M17 4l3 3"/></svg>
+      </button>
+      <div class="field"><label for="to">To</label><select id="to"></select></div>
+      <div class="pick">Tapping a station on the map sets
+        <span class="seg" role="group" aria-label="Map taps set">
+          <button type="button" data-pick="from" aria-pressed="false">From</button>
+          <button type="button" data-pick="to" aria-pressed="true">To</button>
+        </span>
+      </div>
+    </div>
+
+    <div class="answer" aria-live="polite">
+      <div class="count"><span id="count">19</span><span class="unit" id="unit">routes</span></div>
+      <p id="summary">Heiligenstadt to Stephansplatz</p>
+      <ul class="rules">
+        <li>Change only where lines meet</li>
+        <li>Ride each line at most once</li>
+        <li id="ruleStations">Stations may repeat</li>
+      </ul>
+      <label class="toggle" for="strict"><input type="checkbox" id="strict"> Also never pass a station twice</label>
+    </div>
+
+    <div class="listhead">
+      <h2>Routes, fewest lines first</h2>
+      <button id="showAll" type="button" aria-pressed="true">All on map</button>
+    </div>
+    <ol id="routes"></ol>
+
+    <footer>
+      <p>A route is the list of rides: which line, where you board, where you get off. Changing at a different station makes it a different route.</p>
+      <p>Network from Wiener Linien open data (stop order of U1, U2, U3, U4 and U6), drawn as if every line were open. U5 is not running yet, so it is not on the map. The layout is schematic, not to scale.</p>
+    </footer>
+  </aside>
+</div>
+
+<script>
+(() => {
+// ---------- network data ----------
+// Station positions on the schematic (map units). Names follow Wiener Linien open data.
+const S = {
+  // U4
+  "Hütteldorf":[103,990],"Ober St. Veit":[223,1045],"Unter St. Veit":[307,1060],"Braunschweiggasse":[375,1078],
+  "Hietzing":[446,1100],"Schönbrunn":[562,1119],"Meidling Hauptstraße":[636,1148],"Längenfeldgasse":[684,1131],
+  "Margaretengürtel":[741,1090],"Pilgramgasse":[834,1047],"Kettenbrückengasse":[867,993],"Karlsplatz":[955,946],
+  "Stadtpark":[1032,922],"Landstraße":[1069,880],"Schwedenplatz":[1019,813],"Schottenring":[967,751],
+  "Roßauer Lände":[940,692],"Friedensbrücke":[912,628],"Spittelau":[868,536],"Heiligenstadt":[928,383],
+  // U6
+  "Siebenhirten":[486,1773],"Perfektastraße":[513,1698],"Erlaaer Straße":[538,1635],"Alterlaa":[542,1536],
+  "Am Schöpfwerk":[598,1416],"Tscherttegasse":[629,1363],"Bahnhof Meidling":[656,1264],"Niederhofstraße":[655,1175],
+  "Gumpendorfer Straße":[704,1062],"Westbahnhof":[718,999],"Burggasse - Stadthalle":[703,926],"Thaliastraße":[707,862],
+  "Josefstädter Straße":[717,819],"Alser Straße":[738,757],"Michelbeuern - AKH":[757,703],
+  "Währinger Straße - Volksoper":[797,653],"Nußdorfer Straße":[821,585],"Jägerstraße":[948,541],
+  "Dresdner Straße":[1038,516],"Handelskai":[1079,463],"Neue Donau":[1153,410],"Floridsdorf":[1198,295],
+  // U3
+  "Ottakring":[501,818],"Kendlerstraße":[482,890],"Hütteldorfer Straße":[502,957],"Johnstraße":[563,980],
+  "Schweglerstraße":[630,982],"Zieglergasse":[769,988],"Neubaugasse":[805,972],"Volkstheater":[862,892],
+  "Herrengasse":[926,845],"Stephansplatz":[974,858],"Stubentor":[1037,870],"Rochusgasse":[1133,930],
+  "Kardinal-Nagl-Platz":[1199,988],"Schlachthausgasse":[1246,1019],"Erdberg":[1305,1055],"Gasometer":[1332,1125],
+  "Zippererstraße":[1286,1192],"Enkplatz":[1302,1240],"Simmering":[1352,1302],
+  // U1
+  "Leopoldau":[1593,46],"Großfeldsiedlung":[1570,118],"Aderklaaer Straße":[1600,208],"Rennbahnweg":[1582,280],
+  "Kagraner Platz":[1535,360],"Kagran":[1459,444],"Alte Donau":[1386,506],"Kaisermühlen-VIC":[1320,570],
+  "Donauinsel":[1283,610],"Vorgartenstraße":[1202,676],"Praterstern":[1131,734],"Nestroyplatz":[1075,781],
+  "Taubstummengasse":[961,1023],"Südtiroler Platz":[993,1121],"Keplerplatz":[1008,1200],"Reumannplatz":[1019,1247],
+  "Troststraße":[1030,1312],"Altes Landgut":[1046,1378],"Alaudagasse":[1070,1442],"Neulaa":[1102,1502],"Oberlaa":[1140,1560],
+  // U2
+  "Museumsquartier":[889,924],"Rathaus":[845,832],"Schottentor":[898,783],"Taborstraße":[1043,730],
+  "Messe":[1234,745],"Krieau":[1301,781],"Stadion":[1354,830],"Donaumarina":[1440,880],"Donaustadtbrücke":[1508,815],
+  "Stadlau":[1572,727],"Hardeggasse":[1647,708],"Donauspital":[1709,723],"Aspernstraße":[1785,681],
+  "Lina-Loos-Platz":[1822,612],"Hausfeldstraße":[1862,548],"Aspern Nord":[1915,490],"Seestadt":[1985,446]
+};
+
+// Each line: stations (strings) in running order, with bend points ([x,y]) between them.
+const LINES = {
+  U1:["Leopoldau",[1566,62],[1559,84],"Großfeldsiedlung",[1590,172],[1600,196],"Aderklaaer Straße",[1597,248],"Rennbahnweg",
+      "Kagraner Platz",[1518,382],[1494,396],[1480,416],"Kagran",[1436,466],"Alte Donau",[1356,534],[1340,552],"Kaisermühlen-VIC",
+      [1305,593],"Donauinsel","Vorgartenstraße","Praterstern","Nestroyplatz","Schwedenplatz",[995,833],[981,846],"Stephansplatz",
+      "Karlsplatz",[942,985],"Taubstummengasse",[970,1062],"Südtiroler Platz","Keplerplatz","Reumannplatz","Troststraße",
+      "Altes Landgut","Alaudagasse","Neulaa","Oberlaa"],
+  U2:["Karlsplatz","Museumsquartier",[874,912],"Volkstheater",[848,870],[843,850],"Rathaus",[845,800],[856,787],[880,788],
+      "Schottentor",[930,760],[946,752],"Schottenring","Taborstraße",[1070,726],[1092,726],"Praterstern",[1190,744],[1214,745],
+      "Messe",[1260,750],[1281,763],"Krieau",[1330,800],"Stadion",[1380,864],[1396,884],[1416,890],"Donaumarina",[1458,866],
+      "Donaustadtbrücke",[1550,775],[1560,758],"Stadlau",[1586,713],[1610,706],"Hardeggasse",[1680,718],"Donauspital",
+      [1746,730],[1766,718],"Aspernstraße","Lina-Loos-Platz","Hausfeldstraße","Aspern Nord","Seestadt"],
+  U3:["Ottakring","Kendlerstraße",[482,928],[490,946],"Hütteldorfer Straße",[526,975],"Johnstraße","Schweglerstraße",
+      [662,988],[692,1000],"Westbahnhof","Zieglergasse","Neubaugasse",[835,958],[850,936],[856,912],"Volkstheater",[885,864],
+      "Herrengasse","Stephansplatz","Stubentor","Landstraße",[1096,892],[1115,914],"Rochusgasse","Kardinal-Nagl-Platz",
+      "Schlachthausgasse",[1270,1030],"Erdberg",[1334,1080],[1340,1102],"Gasometer","Zippererstraße",[1286,1214],"Enkplatz",
+      [1336,1280],"Simmering"],
+  U4:["Hütteldorf",[122,1000],[136,1024],[165,1037],"Ober St. Veit",[262,1051],"Unter St. Veit",[340,1068],"Braunschweiggasse",
+      "Hietzing",[512,1102],[535,1108],"Schönbrunn","Meidling Hauptstraße",[662,1143],"Längenfeldgasse","Margaretengürtel",
+      [805,1076],[824,1062],"Pilgramgasse",[836,1012],[848,999],"Kettenbrückengasse",[893,982],[930,960],"Karlsplatz",
+      [985,960],[1012,950],"Stadtpark","Landstraße",[1078,850],[1066,826],[1045,818],"Schwedenplatz","Schottenring",
+      [944,720],"Roßauer Lände",[938,655],[924,640],"Friedensbrücke",[889,582],[876,562],"Spittelau",[896,478],[910,446],
+      [918,404],"Heiligenstadt"],
+  U6:["Siebenhirten","Perfektastraße",[532,1668],"Erlaaer Straße",[541,1600],"Alterlaa",[545,1505],[562,1478],[578,1462],
+      "Am Schöpfwerk","Tscherttegasse",[631,1330],"Bahnhof Meidling","Niederhofstraße","Längenfeldgasse",[700,1100],[706,1080],
+      "Gumpendorfer Straße","Westbahnhof",[702,945],"Burggasse - Stadthalle",[700,880],"Thaliastraße","Josefstädter Straße",
+      "Alser Straße","Michelbeuern - AKH",[775,694],[792,684],[798,668],"Währinger Straße - Volksoper",[808,598],
+      "Nußdorfer Straße",[836,568],[846,545],"Spittelau",[886,532],[910,541],"Jägerstraße",[1005,538],[1022,528],
+      "Dresdner Straße",[1055,500],[1063,477],"Handelskai",[1110,436],[1135,422],"Neue Donau",[1165,392],[1180,340],"Floridsdorf"]
+};
+
+// Names as people read them in the app.
+const DISP = {"Messe":"Messe-Prater","Burggasse - Stadthalle":"Burggasse-Stadthalle","Michelbeuern - AKH":"Michelbeuern-AKH",
+  "Währinger Straße - Volksoper":"Währinger Straße-Volksoper"};
+const disp = n => DISP[n] || n;
+
+// Map labels: where the name sits, and how it breaks across lines (as on the printed plan).
+const TEXT = {"Pilgramgasse":"Pilgram-\ngasse","Kettenbrückengasse":"Ketten-\nbrücken-\ngasse","Karlsplatz":"Karls-\nplatz",
+  "Stadtpark":"Stadt-\npark","Landstraße":"Landstraße\n(Wien Mitte)","Roßauer Lände":"Roßauer\nLände",
+  "Gumpendorfer Straße":"Gumpendorfer\nStraße","Westbahnhof":"West-\nbahnhof","Burggasse - Stadthalle":"Burggasse-\nStadthalle",
+  "Josefstädter Straße":"Josefstädter\nStraße","Michelbeuern - AKH":"Michelbeuern-AKH",
+  "Währinger Straße - Volksoper":"Währinger Straße-\nVolksoper","Johnstraße":"John-\nstraße","Schweglerstraße":"Schwegler-\nstraße",
+  "Zieglergasse":"Ziegler-\ngasse","Neubaugasse":"Neubau-\ngasse","Volkstheater":"Volks-\ntheater","Herrengasse":"Herren-\ngasse",
+  "Stephansplatz":"Stephans-\nplatz","Praterstern":"Prater-\nstern","Taborstraße":"Tabor-\nstraße",
+  "Museumsquartier":"Museums-\nquartier","Kaisermühlen-VIC":"Kaisermühlen-\nVIC","Südtiroler Platz":"Südtiroler\nPlatz",
+  "Messe":"Messe-Prater"};
+// side: r l t b tr tl br bl, or [dx, dy, anchor, valign(m|t|b)]
+const LABEL = {
+  "Hütteldorf":"l","Ober St. Veit":"bl","Unter St. Veit":"b","Braunschweiggasse":"tr","Hietzing":"b","Schönbrunn":"t",
+  "Meidling Hauptstraße":"bl","Längenfeldgasse":"br","Margaretengürtel":"br","Pilgramgasse":"br","Kettenbrückengasse":"br",
+  "Karlsplatz":"br","Stadtpark":"br","Landstraße":"r","Schwedenplatz":"r","Schottenring":"tl","Roßauer Lände":"l",
+  "Friedensbrücke":"r","Spittelau":"tl","Heiligenstadt":"l",
+  "Siebenhirten":"l","Perfektastraße":"l","Erlaaer Straße":"l","Alterlaa":"l","Am Schöpfwerk":"l","Tscherttegasse":"l",
+  "Bahnhof Meidling":"l","Niederhofstraße":"r","Gumpendorfer Straße":"l","Westbahnhof":[-12,6,"end","t"],
+  "Burggasse - Stadthalle":[-14,-4,"end","b"],"Thaliastraße":"l","Josefstädter Straße":"l","Alser Straße":"l",
+  "Michelbeuern - AKH":"l","Währinger Straße - Volksoper":"l","Nußdorfer Straße":"l","Jägerstraße":"br",
+  "Dresdner Straße":"r","Handelskai":"r","Neue Donau":"r","Floridsdorf":"r",
+  "Ottakring":"l","Kendlerstraße":"l","Hütteldorfer Straße":"l","Johnstraße":"b","Schweglerstraße":"t","Zieglergasse":"b",
+  "Neubaugasse":"tl","Volkstheater":"l","Herrengasse":"b","Stephansplatz":[-14,-14,"middle","b"],"Stubentor":"bl",
+  "Rochusgasse":"r","Kardinal-Nagl-Platz":"tr","Schlachthausgasse":"r","Erdberg":"r","Gasometer":"br","Zippererstraße":"r",
+  "Enkplatz":"r","Simmering":"r",
+  "Leopoldau":"br","Praterstern":[-12,-15,"middle","b"],"Taborstraße":"t","Messe":"tr","Museumsquartier":"b","Rathaus":"l",
+  "Schottentor":"tl","Donaumarina":"b","Stadlau":"l","Hardeggasse":"t","Donauspital":"b"
+};
+// Line badges at the termini, as on the station plans.
+const BADGES = [["U1",1593,14],["U1",1098,1560],["U2",1985,412],["U2",990,926],["U3",540,818],["U3",1308,1304],
+  ["U4",103,957],["U4",928,350],["U6",1158,295],["U6",530,1773]];
+// Rivers: Donau, Neue Donau (same course, shifted onto the far bank), Donaukanal.
+const DONAU = [[760,-40],[940,200],[1116,437],[1242,643],[1474,848],[1700,1080],[1990,1390]];
+const NEUE_DONAU = DONAU.map(([x,y]) => [x+55,y-55]);
+const KANAL = [[909,160],[970,300],[966,430],[930,500],[912,548],[936,602],[952,640],[968,700],[995,745],[1040,790],
+  [1090,812],[1130,850],[1190,905],[1262,960],[1283,1050],[1400,1090],[1550,1110],[1700,1080]];
+const FULL = {x:-20,y:-20,w:2120,h:1840};
+
+// ---------- derived structure ----------
+const lineStations = {}, ptIndex = {}, pts = {}, sharp = {}, servedBy = {};
+for (const [line, seq] of Object.entries(LINES)) {
+  lineStations[line] = []; ptIndex[line] = {}; pts[line] = []; sharp[line] = [];
+  for (const item of seq) {
+    if (typeof item === "string") {
+      ptIndex[line][item] = pts[line].length;
+      pts[line].push(S[item]); sharp[line].push(true);
+      lineStations[line].push(item);
+      (servedBy[item] ||= []).push(line);
+    } else { pts[line].push(item); sharp[line].push(false); }
+  }
+}
+const ALL = Object.keys(S).sort((a, b) => disp(a).localeCompare(disp(b), "de"));
+const isX = n => servedBy[n].length > 1;
+
+// ---------- route search ----------
+function findRoutes(from, to, strict) {
+  const out = [];
+  if (from === to) return out;
+  (function dfs(at, used, seen, legs) {
+    for (const line of servedBy[at]) {
+      if (used.has(line)) continue;
+      const st = lineStations[line], i = st.indexOf(at);
+      for (let j = 0; j < st.length; j++) {
+        if (j === i) continue;
+        const path = j > i ? st.slice(i, j + 1) : st.slice(j, i + 1).reverse();
+        const dest = path[path.length - 1];
+        if (strict && path.slice(1).some(s => seen.has(s))) continue;
+        const leg = {line, from: at, to: dest, path};
+        if (dest === to) { out.push([...legs, leg]); continue; }
+        if (!isX(dest)) continue;
+        const nu = new Set(used); nu.add(line);
+        const ns = new Set(seen); path.forEach(s => ns.add(s));
+        dfs(dest, nu, ns, [...legs, leg]);
+      }
+    }
+  })(from, new Set(), new Set([from]), []);
+  const stops = r => r.reduce((n, l) => n + l.path.length - 1, 0);
+  return out.sort((a, b) => a.length - b.length || stops(a) - stops(b));
+}
+function routeNote(r, to) {
+  const seq = [r[0].from, ...r.flatMap(l => l.path.slice(1))];
+  const c = {};
+  seq.forEach(s => c[s] = (c[s] || 0) + 1);
+  const twice = Object.keys(c).filter(s => c[s] > 1);
+  const parts = [];
+  if (twice.includes(to)) parts.push(`Rides through ${disp(to)} before getting off there`);
+  const others = twice.filter(s => s !== to).map(disp);
+  if (others.length) parts.push(`Passes ${others.join(", ")} twice`);
+  return parts.join(". ");
+}
+
+// ---------- svg helpers ----------
+const NS = "http://www.w3.org/2000/svg";
+const svg = document.getElementById("map");
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+// Polyline with rounded bends; station vertices stay exact so highlights line up with the base map.
+function roundedPath(p, sh, R = 34) {
+  let d = `M${p[0][0]},${p[0][1]}`;
+  for (let i = 1; i < p.length - 1; i++) {
+    const [px, py] = p[i - 1], [x, y] = p[i], [nx, ny] = p[i + 1];
+    if (sh[i]) { d += `L${x},${y}`; continue; }
+    const l1 = Math.hypot(x - px, y - py), l2 = Math.hypot(nx - x, ny - y);
+    const r = Math.min(R, l1 / 2, l2 / 2);
+    const ax = x + (px - x) * r / l1, ay = y + (py - y) * r / l1;
+    const bx = x + (nx - x) * r / l2, by = y + (ny - y) * r / l2;
+    d += `L${ax.toFixed(1)},${ay.toFixed(1)}Q${x},${y} ${bx.toFixed(1)},${by.toFixed(1)}`;
+  }
+  const z = p[p.length - 1];
+  return d + `L${z[0]},${z[1]}`;
+}
+function smoothPath(p) {
+  let d = `M${p[0]}`;
+  for (let i = 0; i < p.length - 1; i++) {
+    const p0 = p[i - 1] || p[i], p1 = p[i], p2 = p[i + 1], p3 = p[i + 2] || p2;
+    const c1 = [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6];
+    const c2 = [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6];
+    d += `C${c1} ${c2} ${p2}`;
+  }
+  return d;
+}
+function legPoints(leg) {
+  const a = ptIndex[leg.line][leg.from], b = ptIndex[leg.line][leg.to];
+  const lo = Math.min(a, b), hi = Math.max(a, b);
+  let p = pts[leg.line].slice(lo, hi + 1), s = sharp[leg.line].slice(lo, hi + 1);
+  if (a > b) { p = p.reverse(); s = s.reverse(); }
+  return [p, s];
+}
+
+// ---------- draw the base map ----------
+const gWater = el("g", {}, svg), gLines = el("g", {}, svg), gHi = el("g", {}, svg),
+      gSt = el("g", {}, svg), gMarks = el("g", {}, svg), gLbl = el("g", {}, svg),
+      gBadge = el("g", {}, svg), gEnds = el("g", {}, svg), gHit = el("g", {}, svg);
+
+el("path", {d: smoothPath(DONAU), class: "water", "stroke-width": 34}, gWater);
+el("path", {d: smoothPath(NEUE_DONAU), class: "water", "stroke-width": 18}, gWater);
+el("path", {d: smoothPath(KANAL), class: "water", "stroke-width": 10}, gWater);
+const wl = (txt, x, y, rot) => { const t = el("text", {class: "water-lbl", x, y, transform: `rotate(${rot} ${x} ${y})`, "text-anchor": "middle", "dominant-baseline": "central"}, gWater); t.textContent = txt; };
+wl("DONAU", 1590, 968, 45.7);
+wl("NEUE DONAU", 1652, 912, 45.7);
+
+for (const line of Object.keys(LINES))
+  el("path", {d: roundedPath(pts[line], sharp[line]), class: `line base ${line.toLowerCase()}`}, gLines);
+
+const stEl = {}, lblEl = {};
+for (const name of Object.keys(S)) {
+  const [x, y] = S[name], r = isX(name) ? 11 : 8.5;
+  stEl[name] = el("circle", {cx: x, cy: y, r, class: "st"}, gSt);
+
+  const lines = (TEXT[name] || disp(name)).split("\n");
+  let spec = LABEL[name] || "r", dx, dy, anchor, va;
+  const g = r + 7, dg = r;
+  if (Array.isArray(spec)) [dx, dy, anchor, va] = spec;
+  else ({
+    r: () => [dx, dy, anchor, va] = [g, 0, "start", "m"],
+    l: () => [dx, dy, anchor, va] = [-g, 0, "end", "m"],
+    t: () => [dx, dy, anchor, va] = [0, -(r + 6), "middle", "b"],
+    b: () => [dx, dy, anchor, va] = [0, r + 6, "middle", "t"],
+    tr: () => [dx, dy, anchor, va] = [dg, -(r + 3), "start", "b"],
+    tl: () => [dx, dy, anchor, va] = [-dg, -(r + 3), "end", "b"],
+    br: () => [dx, dy, anchor, va] = [dg, r + 3, "start", "t"],
+    bl: () => [dx, dy, anchor, va] = [-dg, r + 3, "end", "t"]
+  })[spec]();
+  const lh = 18, cap = 12, n = lines.length;
+  const y0 = va === "m" ? y + dy - (n - 1) * lh / 2 + cap / 2 : va === "t" ? y + dy + cap : y + dy - (n - 1) * lh;
+  const t = el("text", {class: "lbl", "text-anchor": anchor}, gLbl);
+  lines.forEach((ln, k) => { const s = el("tspan", {x: x + dx, y: y0 + k * lh}, t); s.textContent = ln; });
+  lblEl[name] = t;
+
+  const hit = el("circle", {cx: x, cy: y, r: 18, class: "hit", "data-st": name}, gHit);
+  el("title", {}, hit).textContent = `${disp(name)} (${servedBy[name].join(", ")})`;
+}
+for (const [line, x, y] of BADGES) {
+  const g = el("g", {class: "badge-svg"}, gBadge);
+  el("rect", {x: x - 22, y: y - 13, width: 44, height: 26, rx: 3, class: `b-${line.toLowerCase()}`}, g);
+  const t = el("text", {x, y: y + 1, "text-anchor": "middle", "dominant-baseline": "central"}, g);
+  t.textContent = line;
+}
+
+// ---------- view box: zoom & pan ----------
+let want = {...FULL}, cur = {...FULL}, anim = null;
+const reduce = matchMedia("(prefers-reduced-motion: reduce)");
+function expand(b) {
+  const W = svg.clientWidth || 1, H = svg.clientHeight || 1, a = W / H;
+  let {x, y, w, h} = b;
+  if (w / h > a) { const nh = w / a; y -= (nh - h) / 2; h = nh; } else { const nw = h * a; x -= (nw - w) / 2; w = nw; }
+  return {x, y, w, h};
+}
+function setVB(v) { cur = v; svg.setAttribute("viewBox", `${v.x.toFixed(1)} ${v.y.toFixed(1)} ${v.w.toFixed(1)} ${v.h.toFixed(1)}`); }
+function apply() { setVB(expand(want)); }
+function flyTo(box) {
+  want = box;
+  const target = expand(box), start = {...cur};
+  if (anim) cancelAnimationFrame(anim);
+  if (reduce.matches) return setVB(target);
+  const t0 = performance.now(), T = 480;
+  const step = now => {
+    const k = Math.min(1, (now - t0) / T), e = 1 - Math.pow(1 - k, 3);
+    setVB({x: start.x + (target.x - start.x) * e, y: start.y + (target.y - start.y) * e,
+           w: start.w + (target.w - start.w) * e, h: start.h + (target.h - start.h) * e});
+    anim = k < 1 ? requestAnimationFrame(step) : null;
+  };
+  anim = requestAnimationFrame(step);
+}
+function zoomAt(p, f) {
+  const w = Math.min(FULL.w * 1.6, Math.max(260, cur.w * f));
+  f = w / cur.w;
+  want = {x: p.x - (p.x - cur.x) * f, y: p.y - (p.y - cur.y) * f, w: cur.w * f, h: cur.h * f};
+  apply();
+}
+function toSvg(cx, cy) {
+  const r = svg.getBoundingClientRect();
+  return {x: cur.x + (cx - r.left) / r.width * cur.w, y: cur.y + (cy - r.top) / r.height * cur.h};
+}
+function centre() { return {x: cur.x + cur.w / 2, y: cur.y + cur.h / 2}; }
+svg.addEventListener("wheel", e => {
+  e.preventDefault();
+  if (anim) { cancelAnimationFrame(anim); anim = null; }
+  zoomAt(toSvg(e.clientX, e.clientY), Math.exp(e.deltaY * (e.ctrlKey ? 0.01 : 0.0016)));
+}, {passive: false});
+
+const ptrs = new Map();
+let down = null, moved = false;
+svg.addEventListener("pointerdown", e => {
+  if (anim) { cancelAnimationFrame(anim); anim = null; }
+  svg.setPointerCapture(e.pointerId);
+  ptrs.set(e.pointerId, {x: e.clientX, y: e.clientY});
+  if (ptrs.size === 1) { const h = e.target.closest("[data-st]"); down = {x: e.clientX, y: e.clientY, st: h && h.dataset.st}; moved = false; }
+  else { down = null; moved = true; }
+});
+svg.addEventListener("pointermove", e => {
+  const prev = ptrs.get(e.pointerId);
+  if (!prev) return;
+  const now = {x: e.clientX, y: e.clientY};
+  const r = svg.getBoundingClientRect();
+  if (ptrs.size === 1) {
+    if (down && Math.hypot(now.x - down.x, now.y - down.y) > 5) moved = true;
+    if (moved) {
+      svg.classList.add("dragging");
+      want = {...cur, x: cur.x - (now.x - prev.x) * cur.w / r.width, y: cur.y - (now.y - prev.y) * cur.h / r.height};
+      apply();
+    }
+  } else if (ptrs.size === 2) {
+    const other = [...ptrs.entries()].find(([id]) => id !== e.pointerId)[1];
+    const d0 = Math.hypot(prev.x - other.x, prev.y - other.y), d1 = Math.hypot(now.x - other.x, now.y - other.y);
+    const m0 = {x: (prev.x + other.x) / 2, y: (prev.y + other.y) / 2}, m1 = {x: (now.x + other.x) / 2, y: (now.y + other.y) / 2};
+    if (d1 > 0) zoomAt(toSvg(m1.x, m1.y), d0 / d1);
+    want = {...cur, x: cur.x - (m1.x - m0.x) * cur.w / r.width, y: cur.y - (m1.y - m0.y) * cur.h / r.height};
+    apply();
+  }
+  ptrs.set(e.pointerId, now);
+});
+const lift = e => {
+  if (!ptrs.has(e.pointerId)) return;
+  ptrs.delete(e.pointerId);
+  if (e.type === "pointerup" && !moved && down && down.st) pickStation(down.st);
+  if (!ptrs.size) { svg.classList.remove("dragging"); down = null; }
+};
+svg.addEventListener("pointerup", lift);
+svg.addEventListener("pointercancel", lift);
+document.getElementById("zin").onclick = () => { if (anim) cancelAnimationFrame(anim), anim = null; zoomAt(centre(), 1 / 1.4); };
+document.getElementById("zout").onclick = () => { if (anim) cancelAnimationFrame(anim), anim = null; zoomAt(centre(), 1.4); };
+document.getElementById("zfit").onclick = () => flyTo({...FULL});
+new ResizeObserver(() => { if (!anim) apply(); }).observe(svg);
+
+// ---------- state & rendering ----------
+const state = {from: "Heiligenstadt", to: "Stephansplatz", strict: false, pick: "to", routes: [], sel: null};
+const $ = id => document.getElementById(id);
+const badge = line => `<span class="badge ${line.toLowerCase()}">${line}</span>`;
+const esc = s => s.replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"})[c]);
+
+function fillSelect(sel, val) {
+  sel.innerHTML = ALL.map(n => `<option value="${esc(n)}">${esc(disp(n))} (${servedBy[n].join(", ")})</option>`).join("");
+  sel.value = val;
+}
+function legBox(legs) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const leg of legs) for (const [x, y] of legPoints(leg)[0]) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+  const padX = 150, padY = 80;
+  let b = {x: x0 - padX, y: y0 - padY, w: x1 - x0 + 2 * padX, h: y1 - y0 + 2 * padY};
+  if (b.w < 520) { b.x -= (520 - b.w) / 2; b.w = 520; }
+  if (b.h < 420) { b.y -= (420 - b.h) / 2; b.h = 420; }
+  return b;
+}
+
+function drawMap(route, animate) {
+  gHi.replaceChildren(); gMarks.replaceChildren(); gEnds.replaceChildren();
+  const routes = route ? [route] : state.routes;
+  const on = new Set(), key = new Set([state.from, state.to]), xfers = new Set();
+  const seen = new Set(), legs = [];
+  for (const r of routes) r.forEach((leg, k) => {
+    leg.path.forEach(s => on.add(s));
+    if (route && k > 0) xfers.add(leg.from);
+    const id = `${leg.line}|${leg.from}|${leg.to}`;
+    if (!seen.has(id)) { seen.add(id); legs.push(leg); }
+  });
+  svg.classList.toggle("focus", routes.length > 0);
+
+  let delay = 0;
+  const motion = animate && !reduce.matches;
+  for (const leg of legs) {
+    const [p, s] = legPoints(leg);
+    const path = el("path", {d: roundedPath(p, s), class: `hi ${leg.line.toLowerCase()}`}, gHi);
+    if (motion) {
+      const len = path.getTotalLength(), dur = Math.max(220, Math.min(700, len * 1.4));
+      path.style.strokeDasharray = `${len} ${len}`;
+      path.animate([{strokeDashoffset: len}, {strokeDashoffset: 0}], {duration: dur, delay, easing: "ease-in-out", fill: "both"});
+      delay += dur;
+    }
+  }
+  for (const n of Object.keys(S)) {
+    stEl[n].classList.toggle("on", on.has(n) || key.has(n));
+    lblEl[n].classList.toggle("on", on.has(n) || key.has(n));
+    lblEl[n].classList.toggle("key", key.has(n) || xfers.has(n));
+  }
+  for (const n of xfers) { const [x, y] = S[n]; el("circle", {cx: x, cy: y, r: 13.5, class: "xfer"}, gMarks); }
+  [[state.from, "A"], [state.to, "B"]].forEach(([n, letter]) => {
+    if (!n) return;
+    const [x, y] = S[n], g = el("g", {class: "endpt"}, gEnds);
+    el("circle", {cx: x, cy: y, r: 13}, g);
+    const t = el("text", {x, y: y + 1, "text-anchor": "middle", "dominant-baseline": "central"}, g);
+    t.textContent = letter;
+  });
+}
+
+function renderList() {
+  const {routes, from, to} = state;
+  $("count").textContent = routes.length;
+  $("unit").textContent = routes.length === 1 ? "route" : "routes";
+  $("summary").textContent = `${disp(from)} to ${disp(to)}`;
+  $("ruleStations").textContent = state.strict ? "No station twice" : "Stations may repeat";
+  $("showAll").textContent = `All ${routes.length} on map`;
+  $("showAll").setAttribute("aria-pressed", state.sel === null ? "true" : "false");
+  const ol = $("routes");
+  if (!routes.length) {
+    ol.innerHTML = `<li class="empty">${from === to ? "Pick two different stations." : "No route gets there without reusing a line."}</li>`;
+    return;
+  }
+  ol.innerHTML = routes.map((r, i) => {
+    const legs = r.map((l, k) => `<span class="leg">${badge(l.line)}${esc(disp(l.to))}</span>${k < r.length - 1 ? '<span class="chev" aria-hidden="true">›</span>' : ""}`).join("");
+    const stops = r.reduce((n, l) => n + l.path.length - 1, 0);
+    const note = routeNote(r, to);
+    return `<li><button type="button" class="route" data-i="${i}" aria-pressed="${state.sel === i}">
+      <span class="rnum">${String(i + 1).padStart(2, "0")}</span>
+      <span class="legs">${legs}</span>
+      <span class="meta">${r.length} ${r.length === 1 ? "line" : "lines"} · ${r.length - 1} ${r.length === 2 ? "change" : "changes"} · ${stops} stops</span>
+      ${note ? `<span class="note">${esc(note)}</span>` : ""}
+    </button></li>`;
+  }).join("");
+}
+
+function select(i) {
+  state.sel = i;
+  renderList();
+  if (i === null) {
+    drawMap(null, false);
+    const all = state.routes.flat();
+    flyTo(all.length ? legBox(all) : {...FULL});
+  } else {
+    drawMap(state.routes[i], true);
+    flyTo(legBox(state.routes[i]));
+  }
+}
+function update() {
+  state.routes = findRoutes(state.from, state.to, state.strict);
+  state.sel = null;
+  $("from").value = state.from; $("to").value = state.to;
+  renderList();
+  drawMap(null, false);
+}
+function pickStation(n) {
+  state[state.pick] = n;
+  if (state.pick === "from") setPick("to");
+  update();
+}
+function setPick(p) {
+  state.pick = p;
+  document.querySelectorAll("[data-pick]").forEach(b => b.setAttribute("aria-pressed", b.dataset.pick === p ? "true" : "false"));
+}
+
+fillSelect($("from"), state.from);
+fillSelect($("to"), state.to);
+$("from").onchange = e => { state.from = e.target.value; update(); };
+$("to").onchange = e => { state.to = e.target.value; update(); };
+$("swap").onclick = () => { [state.from, state.to] = [state.to, state.from]; update(); };
+$("strict").onchange = e => { state.strict = e.target.checked; update(); };
+$("showAll").onclick = () => select(null);
+document.querySelectorAll("[data-pick]").forEach(b => b.onclick = () => setPick(b.dataset.pick));
+const ol = $("routes");
+ol.addEventListener("click", e => {
+  const b = e.target.closest(".route");
+  if (!b) return;
+  const i = +b.dataset.i;
+  select(state.sel === i ? null : i);
+});
+const fine = matchMedia("(hover: hover)");
+let hover = null;
+ol.addEventListener("mouseover", e => {
+  const b = e.target.closest(".route");
+  if (!b || !fine.matches) return;
+  const i = +b.dataset.i;
+  if (i === hover) return;
+  hover = i;
+  drawMap(state.routes[i], false);
+});
+ol.addEventListener("mouseleave", () => {
+  if (!fine.matches || hover === null) return;
+  hover = null;
+  drawMap(state.sel === null ? null : state.routes[state.sel], false);
+});
+
+apply();
+update();
+})();
+</script>
